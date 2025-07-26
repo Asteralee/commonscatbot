@@ -28,29 +28,35 @@ def add_commonscat_to_page(page_title):
         print(f"Commonscat already exists on {page_title}. Skipping.")
         return
 
-    # Add {{commonscat}} at the end of the page (before categories if present)
+    # Check if the article has a Commons category linked (e.g., [[Category:Commons category]])
     if '[[Category:' in content:
-        content = content.split('[[Category:')[0] + '\n{{commonscat}}' + '\n[[Category:' + content.split('[[Category:')[1]
+        if 'Commons category' in content:
+            # Add {{commonscat}} at the end of the page (before categories if present)
+            if '[[Category:' in content:
+                content = content.split('[[Category:')[0] + '\n{{commonscat}}' + '\n[[Category:' + content.split('[[Category:')[1]
+            else:
+                content = content + '\n{{commonscat}}'
+            # Proceed to edit the page with commonscat template
+            edit_params = {
+                'action': 'edit',
+                'title': page_title,
+                'text': content,
+                'token': get_edit_token(),
+                'summary': 'Bot: Added {{commonscat}} to article',  # Add the edit summary
+                'format': 'json'
+            }
+
+            edit_response = requests.post(API_URL, data=edit_params)
+            edit_data = edit_response.json()
+
+            if 'error' in edit_data:
+                print(f"Error editing {page_title}: {edit_data['error']['info']}")
+            else:
+                print(f"Successfully added {{commonscat}} to {page_title}.")
+        else:
+            print(f"No Commons category found for {page_title}. Skipping.")
     else:
-        content = content + '\n{{commonscat}}'
-
-    # Edit the page to add {{commonscat}} at the end.
-    edit_params = {
-        'action': 'edit',
-        'title': page_title,
-        'text': content,
-        'token': get_edit_token(),
-        'summary': 'Bot: Added {{commonscat}} to article',  # Add the edit summary
-        'format': 'json'
-    }
-
-    edit_response = requests.post(API_URL, data=edit_params)
-    edit_data = edit_response.json()
-
-    if 'error' in edit_data:
-        print(f"Error editing {page_title}: {edit_data['error']['info']}")
-    else:
-        print(f"Successfully added {{commonscat}} to {page_title}.")
+        print(f"No Commons category found for {page_title}. Skipping.")
 
 # Function to get the edit token for authentication
 def get_edit_token():
@@ -59,14 +65,23 @@ def get_edit_token():
     # Step 1: Login to get a session (and the edit token)
     login_params = {
         'action': 'login',
-        'lgname': os.getenv('BOT_USERNAME'),  
-        'lgpassword': os.getenv('BOT_PASSWORD'),  
+        'lgname': os.getenv('BOT_USERNAME'),  # Bot username from GitHub secrets
+        'lgpassword': os.getenv('BOT_PASSWORD'),  # Bot password from GitHub secrets
         'format': 'json'
     }
 
     # Perform the login
     login_response = session.post(API_URL, data=login_params)
-    login_data = login_response.json()
+
+    # Debug: Print the raw response text to see if the login worked
+    print(f"Login response: {login_response.text}")
+
+    # Try to parse the JSON response
+    try:
+        login_data = login_response.json()
+    except ValueError:
+        print("Error: Failed to parse JSON from login response.")
+        return None
 
     # Check if login was successful
     if 'error' in login_data:
@@ -97,7 +112,7 @@ def get_random_articles():
     params = {
         'action': 'query',
         'list': 'allpages',
-        'aplimit': '500',  
+        'aplimit': '500',  # You can adjust this number for the size of the list
         'format': 'json'
     }
 
