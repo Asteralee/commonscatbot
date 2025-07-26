@@ -4,6 +4,7 @@ import os
 
 # Set the API endpoint for SimpleWiki
 API_URL = "https://simple.wikipedia.org/w/api.php"
+LOGIN_URL = "https://simple.wikipedia.org/w/index.php?title=Special:UserLogin&action=submitlogin"
 
 # Function to add {{commonscat}} to a page if not already added
 def add_commonscat_to_page(page_title):
@@ -53,14 +54,18 @@ def add_commonscat_to_page(page_title):
 
 # Function to get the edit token for authentication
 def get_edit_token():
-    # Step 1: Login to get a token 
+    session = requests.Session()
+
+    # Step 1: Login to get a session (and the edit token)
     login_params = {
         'action': 'login',
         'lgname': os.getenv('BOT_USERNAME'),  
         'lgpassword': os.getenv('BOT_PASSWORD'),  
         'format': 'json'
     }
-    login_response = requests.post(API_URL, data=login_params)
+
+    # Perform the login
+    login_response = session.post(API_URL, data=login_params)
     login_data = login_response.json()
 
     # Check if login was successful
@@ -68,30 +73,31 @@ def get_edit_token():
         print(f"Login failed: {login_data['error']['info']}")
         return None
 
-    # Step 2: Retrieve the CSRF token
+    # Step 2: Get the CSRF token by making a request with the session
     token_params = {
-        'action': 'tokens',
+        'action': 'query',
+        'meta': 'tokens',
         'format': 'json'
     }
-    token_response = requests.get(API_URL, params=token_params)
+    token_response = session.get(API_URL, params=token_params)
     token_data = token_response.json()
 
     # Debug: Print token response to verify
     print(f"Token Response: {token_data}")
 
     # Check if 'tokens' key exists in the response
-    if 'tokens' not in token_data:
+    if 'tokens' not in token_data['query']:
         print("Error: No token found in the response")
         return None
 
-    return token_data['tokens']['csrftoken']
+    return token_data['query']['tokens']['csrftoken']
 
 # Function to get a list of articles from Special:AllPages
 def get_random_articles():
     params = {
         'action': 'query',
         'list': 'allpages',
-        'aplimit': '500',  # Size of the list
+        'aplimit': '500',  
         'format': 'json'
     }
 
