@@ -4,7 +4,6 @@ import os
 
 # Set the API endpoint for SimpleWiki
 API_URL = "https://simple.wikipedia.org/w/api.php"
-LOGIN_URL = "https://simple.wikipedia.org/w/index.php?title=Special:UserLogin&action=submitlogin"
 
 # Function to add {{commonscat}} to a page if not already added
 def add_commonscat_to_page(page_title):
@@ -23,38 +22,47 @@ def add_commonscat_to_page(page_title):
     page = next(iter(pages.values()))
     content = page.get('revisions', [{}])[0].get('*', '')
 
+    # Debug: Print the content of the article
+    print(f"Content of {page_title}:\n{content[:500]}")  # Print first 500 chars for inspection
+
     # Check if {{commonscat}} is already in the article
     if '{{commonscat}}' in content:
         print(f"Commonscat already exists on {page_title}. Skipping.")
         return
 
-    # Check if the article has a Commons category linked (e.g., [[Category:Commons category]])
-    if '[[Category:' in content:
-        if 'Commons category' in content:
-            # Add {{commonscat}} at the end of the page (before categories if present)
-            if '[[Category:' in content:
-                content = content.split('[[Category:')[0] + '\n{{commonscat}}' + '\n[[Category:' + content.split('[[Category:')[1]
-            else:
-                content = content + '\n{{commonscat}}'
-            # Proceed to edit the page with commonscat template
-            edit_params = {
-                'action': 'edit',
-                'title': page_title,
-                'text': content,
-                'token': get_edit_token(),
-                'summary': 'Bot: Added {{commonscat}} to article',  # Add the edit summary
-                'format': 'json'
-            }
+    # Check if there is a Commons category (either {{commonscat}} or [[Category:Commons category]])
+    commons_category_found = False
 
-            edit_response = requests.post(API_URL, data=edit_params)
-            edit_data = edit_response.json()
+    # Look for {{commonscat}} template
+    if '{{commonscat}}' in content:
+        commons_category_found = True
+    # Look for [[Category:Commons category]] links
+    elif '[[Category:' in content and 'Commons category' in content:
+        commons_category_found = True
 
-            if 'error' in edit_data:
-                print(f"Error editing {page_title}: {edit_data['error']['info']}")
-            else:
-                print(f"Successfully added {{commonscat}} to {page_title}.")
+    if commons_category_found:
+        # Add {{commonscat}} at the end of the page (before categories if present)
+        if '[[Category:' in content:
+            content = content.split('[[Category:')[0] + '\n{{commonscat}}' + '\n[[Category:' + content.split('[[Category:')[1]
         else:
-            print(f"No Commons category found for {page_title}. Skipping.")
+            content = content + '\n{{commonscat}}'
+        # Proceed to edit the page with commonscat template
+        edit_params = {
+            'action': 'edit',
+            'title': page_title,
+            'text': content,
+            'token': get_edit_token(),
+            'summary': 'Bot: Added {{commonscat}} to article',  # Add the edit summary
+            'format': 'json'
+        }
+
+        edit_response = requests.post(API_URL, data=edit_params)
+        edit_data = edit_response.json()
+
+        if 'error' in edit_data:
+            print(f"Error editing {page_title}: {edit_data['error']['info']}")
+        else:
+            print(f"Successfully added {{commonscat}} to {page_title}.")
     else:
         print(f"No Commons category found for {page_title}. Skipping.")
 
@@ -73,15 +81,8 @@ def get_edit_token():
     # Perform the login
     login_response = session.post(API_URL, data=login_params)
 
-    # Debug: Print the raw response text to see if the login worked
-    print(f"Login response: {login_response.text}")
-
     # Try to parse the JSON response
-    try:
-        login_data = login_response.json()
-    except ValueError:
-        print("Error: Failed to parse JSON from login response.")
-        return None
+    login_data = login_response.json()
 
     # Check if login was successful
     if 'error' in login_data:
@@ -96,14 +97,6 @@ def get_edit_token():
     }
     token_response = session.get(API_URL, params=token_params)
     token_data = token_response.json()
-
-    # Debug: Print token response to verify
-    print(f"Token Response: {token_data}")
-
-    # Check if 'tokens' key exists in the response
-    if 'tokens' not in token_data['query']:
-        print("Error: No token found in the response")
-        return None
 
     return token_data['query']['tokens']['csrftoken']
 
