@@ -178,7 +178,7 @@ def get_random_articles():
         return []
 
     articles = [item['title'] for item in data['query']['allpages']]
-    return random.sample(articles, random.randint(3, 10))
+    return random.sample(articles, random.randint(5, 20))
 
 
 # Main loop
