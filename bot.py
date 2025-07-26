@@ -10,8 +10,9 @@ def add_commonscat_to_page(page_title):
     params = {
         'action': 'query',
         'titles': page_title,
-        'prop': 'revisions',
+        'prop': 'revisions|info',
         'rvprop': 'content',
+        'inprop': 'url',  # Get the redirect URL if it's a redirect
         'format': 'json',
     }
 
@@ -20,6 +21,12 @@ def add_commonscat_to_page(page_title):
 
     pages = data['query']['pages']
     page = next(iter(pages.values()))
+
+    # Check if the page is a redirect
+    if 'redirect' in page:
+        print(f"{page_title} is a redirect. Skipping.")
+        return
+
     content = page.get('revisions', [{}])[0].get('*', '')
 
     # Debug: Print the content of the article
