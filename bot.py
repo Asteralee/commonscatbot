@@ -13,8 +13,8 @@ COMMONSCAT_REDIRECTS = [
     "Commonsimages cat", "Container cat"
 ]
 
-username = os.environ['WIKI_BOT_USERNAME']
-password = os.environ['WIKI_BOT_PASSWORD']
+username = os.environ['BOT_USERNAME']
+password = os.environ['BOT_PASSWORD']
 
 
 def get_random_articles():
