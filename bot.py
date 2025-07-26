@@ -2,7 +2,7 @@ import requests
 import random
 import os
 
-# Set the API endpoint for SimpleWiki (replace with the appropriate URL for SimpleWiki)
+# Set the API endpoint for SimpleWiki
 API_URL = "https://simple.wikipedia.org/w/api.php"
 
 # Function to add {{commonscat}} to a page if not already added
@@ -33,7 +33,7 @@ def add_commonscat_to_page(page_title):
     else:
         content = content + '\n{{commonscat}}'
 
-    # Now, we will edit the page to add {{commonscat}} at the end.
+    # Edit the page to add {{commonscat}} at the end.
     edit_params = {
         'action': 'edit',
         'title': page_title,
@@ -53,22 +53,36 @@ def add_commonscat_to_page(page_title):
 
 # Function to get the edit token for authentication
 def get_edit_token():
+    # Step 1: Login to get a token 
     login_params = {
         'action': 'login',
-        'lgname': os.getenv('BOT_USERNAME'),  # Bot username from GitHub secrets
-        'lgpassword': os.getenv('BOT_PASSWORD'),  # Bot password from GitHub secrets
+        'lgname': os.getenv('BOT_USERNAME'),  
+        'lgpassword': os.getenv('BOT_PASSWORD'),  
         'format': 'json'
     }
     login_response = requests.post(API_URL, data=login_params)
     login_data = login_response.json()
 
-    # Extract the token after logging in
+    # Check if login was successful
+    if 'error' in login_data:
+        print(f"Login failed: {login_data['error']['info']}")
+        return None
+
+    # Step 2: Retrieve the CSRF token
     token_params = {
         'action': 'tokens',
         'format': 'json'
     }
     token_response = requests.get(API_URL, params=token_params)
     token_data = token_response.json()
+
+    # Debug: Print token response to verify
+    print(f"Token Response: {token_data}")
+
+    # Check if 'tokens' key exists in the response
+    if 'tokens' not in token_data:
+        print("Error: No token found in the response")
+        return None
 
     return token_data['tokens']['csrftoken']
 
@@ -77,7 +91,7 @@ def get_random_articles():
     params = {
         'action': 'query',
         'list': 'allpages',
-        'aplimit': '500',  # You can adjust this number for the size of the list
+        'aplimit': '500',  # Size of the list
         'format': 'json'
     }
 
