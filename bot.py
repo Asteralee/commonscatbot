@@ -2,74 +2,86 @@ import requests
 import random
 import os
 
-# Set the API endpoint for SimpleWiki and Wikidata
+# API endpoints
 API_URL = "https://simple.wikipedia.org/w/api.php"
 WIKIDATA_API_URL = "https://www.wikidata.org/w/api.php"
 
-# Function to add {{commonscat}} to a page if not already added
+# Required User-Agent (Wikimedia policy)
+HEADERS = {
+    'User-Agent': 'commonscatbot/1.0 (https://github.com/Asteralee/commonscatbot; bot for adding {{commonscat}} to SimpleWiki)'
+}
+
+# Add {{commonscat}} to a page if appropriate
 def add_commonscat_to_page(page_title):
     params = {
         'action': 'query',
         'titles': page_title,
         'prop': 'revisions|info',
         'rvprop': 'content',
-        'inprop': 'url',  # Get the redirect URL if it's a redirect
+        'inprop': 'url',
         'format': 'json',
     }
 
-    response = requests.get(API_URL, params=params)
-    data = response.json()
+    try:
+        response = requests.get(API_URL, params=params, headers=HEADERS)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        print(f"Error loading page '{page_title}': {e}")
+        return
 
     pages = data['query']['pages']
     page = next(iter(pages.values()))
 
-    # Check if the page is a redirect
     if 'redirect' in page:
         print(f"{page_title} is a redirect. Skipping.")
         return
 
     content = page.get('revisions', [{}])[0].get('*', '')
+    print(f"Content of {page_title}:\n{content[:500]}")
 
-    # Debug: Print the content of the article
-    print(f"Content of {page_title}:\n{content[:500]}")  # Print first 500 chars for inspection
-
-    # Check if Commons category is already added
-    if '{{commonscat}}' in content:
+    if '{{commonscat' in content:
         print(f"Commonscat already exists on {page_title}. Skipping.")
         return
 
-    # Check if Commons category exists in Wikidata
     commons_category = get_commons_category_from_wikidata(page_title)
     if commons_category:
-        # Add {{commonscat}} at the end of the page (before categories if present)
         if '[[Category:' in content:
-            content = content.split('[[Category:')[0] + '\n{{commonscat}}' + '\n[[Category:' + content.split('[[Category:')[1]
+            before, after = content.split('[[Category:', 1)
+            content = before.rstrip() + '\n{{commonscat}}\n[[Category:' + after
         else:
-            content = content + '\n{{commonscat}}'
+            content = content.rstrip() + '\n{{commonscat}}'
 
-        # Proceed to edit the page with commonscat template
+        edit_token = get_edit_token()
+        if not edit_token:
+            print("Could not obtain edit token.")
+            return
+
         edit_params = {
             'action': 'edit',
             'title': page_title,
             'text': content,
-            'token': get_edit_token(),
-            'summary': 'Bot: Added {{commonscat}} to article',  # Add the edit summary
+            'token': edit_token,
+            'summary': 'Bot: Added {{commonscat}} using data from Wikidata',
             'format': 'json'
         }
 
-        edit_response = requests.post(API_URL, data=edit_params)
-        edit_data = edit_response.json()
+        try:
+            edit_response = requests.post(API_URL, data=edit_params, headers=HEADERS)
+            edit_data = edit_response.json()
 
-        if 'error' in edit_data:
-            print(f"Error editing {page_title}: {edit_data['error']['info']}")
-        else:
-            print(f"Successfully added {{commonscat}} to {page_title}.")
+            if 'error' in edit_data:
+                print(f"Error editing {page_title}: {edit_data['error']['info']}")
+            else:
+                print(f"✅ Successfully added {{commonscat}} to {page_title}.")
+        except Exception as e:
+            print(f"Edit request failed for {page_title}: {e}")
     else:
         print(f"No Commons category found for {page_title}. Skipping.")
 
-# Function to get the Commons category (P373) from Wikidata
+
+# Get Commons category (P373) from Wikidata
 def get_commons_category_from_wikidata(page_title):
-    # Search for the Wikidata ID using the article title
     search_params = {
         'action': 'wbsearchentities',
         'search': page_title,
@@ -77,96 +89,105 @@ def get_commons_category_from_wikidata(page_title):
         'type': 'item',
         'format': 'json'
     }
-    
-    search_response = requests.get(WIKIDATA_API_URL, params=search_params)
-    search_data = search_response.json()
-    
-    # Check if we found any result
+
+    try:
+        search_response = requests.get(WIKIDATA_API_URL, params=search_params, headers=HEADERS)
+        search_response.raise_for_status()
+        search_data = search_response.json()
+    except Exception as e:
+        print(f"Error fetching Wikidata entity for '{page_title}': {e}")
+        return None
+
     if 'search' in search_data and len(search_data['search']) > 0:
-        # Get the first result (assuming the search result is for the correct article)
         wikidata_id = search_data['search'][0]['id']
-        
-        # Now, query Wikidata for the Commons category (P373) linked to the article
         entity_params = {
             'action': 'wbgetentities',
             'ids': wikidata_id,
             'props': 'claims',
             'format': 'json'
         }
-        
-        entity_response = requests.get(WIKIDATA_API_URL, params=entity_params)
-        entity_data = entity_response.json()
-        
-        # Check if the entity has the P373 claim (Commons category)
-        if 'entities' in entity_data and wikidata_id in entity_data['entities']:
-            claims = entity_data['entities'][wikidata_id].get('claims', {})
-            commonscat_claims = claims.get('P373', [])
-            
-            if commonscat_claims:
-                # Return the Commons category from Wikidata
-                return commonscat_claims[0]['mainsnak']['datavalue']['value']
-    
-    # If no Commons category is found in Wikidata, return None
+
+        try:
+            entity_response = requests.get(WIKIDATA_API_URL, params=entity_params, headers=HEADERS)
+            entity_response.raise_for_status()
+            entity_data = entity_response.json()
+        except Exception as e:
+            print(f"Error fetching Wikidata claims for '{wikidata_id}': {e}")
+            return None
+
+        claims = entity_data['entities'].get(wikidata_id, {}).get('claims', {})
+        commonscat_claims = claims.get('P373', [])
+
+        if commonscat_claims:
+            return commonscat_claims[0]['mainsnak']['datavalue']['value']
+
     return None
 
-# Function to get the edit token for authentication
+
+# Get edit token using bot credentials
 def get_edit_token():
     session = requests.Session()
 
-    # Step 1: Login to get a session (and the edit token)
     login_params = {
         'action': 'login',
-        'lgname': os.getenv('BOT_USERNAME'),  # Bot username from GitHub secrets
-        'lgpassword': os.getenv('BOT_PASSWORD'),  # Bot password from GitHub secrets
+        'lgname': os.getenv('BOT_USERNAME'),
+        'lgpassword': os.getenv('BOT_PASSWORD'),
         'format': 'json'
     }
 
-    # Perform the login
-    login_response = session.post(API_URL, data=login_params)
-
-    # Try to parse the JSON response
-    login_data = login_response.json()
-
-    # Check if login was successful
-    if 'error' in login_data:
-        print(f"Login failed: {login_data['error']['info']}")
+    try:
+        login_response = session.post(API_URL, data=login_params, headers=HEADERS)
+        login_data = login_response.json()
+        if 'error' in login_data:
+            print(f"Login failed: {login_data['error']['info']}")
+            return None
+    except Exception as e:
+        print(f"Login request failed: {e}")
         return None
 
-    # Step 2: Get the CSRF token by making a request with the session
     token_params = {
         'action': 'query',
         'meta': 'tokens',
         'format': 'json'
     }
-    token_response = session.get(API_URL, params=token_params)
-    token_data = token_response.json()
 
-    return token_data['query']['tokens']['csrftoken']
+    try:
+        token_response = session.get(API_URL, params=token_params, headers=HEADERS)
+        token_data = token_response.json()
+        return token_data['query']['tokens']['csrftoken']
+    except Exception as e:
+        print(f"Token request failed: {e}")
+        return None
 
-# Function to get a list of articles from Special:AllPages
+
+# Grab random article titles from Special:AllPages
 def get_random_articles():
     params = {
         'action': 'query',
         'list': 'allpages',
-        'aplimit': '500',  # You can adjust this number for the size of the list
+        'aplimit': '500',
         'format': 'json'
     }
 
-    response = requests.get(API_URL, params=params)
-    data = response.json()
+    try:
+        response = requests.get(API_URL, params=params, headers=HEADERS)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        print(f"Failed to get articles: {e}")
+        return []
 
-    # Extract all article titles
     articles = [item['title'] for item in data['query']['allpages']]
+    return random.sample(articles, random.randint(3, 10))
 
-    # Randomly select 3 to 10 articles from the list
-    selected_articles = random.sample(articles, random.randint(3, 10))
-    return selected_articles
 
-# Main function to run the bot
+# Main loop
 def run_bot():
     articles = get_random_articles()
     for article in articles:
         add_commonscat_to_page(article)
 
-# Run the bot
-run_bot()
+
+# Entry point
+if __name__ == '__main__':
+    run_bot()
