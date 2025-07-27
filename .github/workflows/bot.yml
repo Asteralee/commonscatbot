@@ -1,16 +1,16 @@
 name: Run AsteraBot
 
 on:
-  workflow_dispatch:  # allows manual run from GitHub UI
   schedule:
-    - cron: '0 */6 * * *'  # runs every 6 hours, adjust as needed
+    - cron: '0 12 16 * *'  # Runs at 12:00 UTC on the 16th of every month
+  workflow_dispatch:       # Also allows you to trigger it manually
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -21,9 +21,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests mwparserfromhell
+          pip install mwparserfromhell requests
 
-      - name: Run bot
+      - name: Run the bot
         env:
           BOT_USERNAME: ${{ secrets.BOT_USERNAME }}
           BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
