@@ -130,6 +130,17 @@ def fetch_commons_category_from_wikidata(title, session):
                 return claims['P373'][0]['mainsnak']['datavalue']['value']
     return None
 
+def commons_category_exists(category_name):
+    url = "https://commons.wikimedia.org/w/api.php"
+    params = {
+        "action": "query",
+        "titles": f"Category:{category_name}",
+        "format": "json"
+    }
+    response = requests.get(url, params=params, headers=HEADERS)
+    pages = response.json().get("query", {}).get("pages", {})
+    return not any(page_id == "-1" for page_id in pages)
+
 def insert_commonscat(text, commonscat_value):
     commonscat_template = f"\n{{{{Commonscat|{commonscat_value}}}}}"
 
@@ -190,6 +201,10 @@ def add_commonscat_to_page(title, session):
         print(f"No Commons category found for {title}. Skipping.")
         return
 
+    if not commons_category_exists(commonscat_value):
+        print(f"Commons category 'Category:{commonscat_value}' does not exist. Skipping.")
+        return
+
     new_text = insert_commonscat(text, commonscat_value)
     csrf_token = get_csrf_token(session)
 
@@ -223,13 +238,4 @@ def run_bot():
 
     for _ in range(15):
         try:
-            article = fetch_random_article(session)
-            print(f"\nWorking on: {article}")
-            add_commonscat_to_page(article, session)
-            time.sleep(3)
-        except Exception as e:
-            print(f"Error during processing: {e}")
-            time.sleep(2)
-
-if __name__ == "__main__":
-    run_bot()
+            article = fetch
