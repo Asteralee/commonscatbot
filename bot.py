@@ -11,24 +11,32 @@ BLOCKING_TEMPLATES = [
     # Commonscat family
     "Commonscat", "Commons cat", "Commonscat2", "Ccat", "Wikimedia commons cat",
     "Category commons", "C cat", "Commonscategory", "Commonsimages cat",
-    "Container cat", "Commons Category", "Commons category",
+    "Container cat", "Commons Category", "Commons category", "commonscat",
+    "commons cat", "commonscat2", "ccat", "wikimedia commons cat",
+    "category commons", "c cat", "commonscategory", "commonsimages cat",
+    "container cat", "commons category", "commons category",
 
     # Commons category multi
     "Commons category multi", "Commonscats", "Commons cat multi", "Commonscat multi",
+    "commons category multi", "commonscats", "commons cat multi", "commonscat multi",
 
     # Commons
-    "Commons", "Wikimedia Commons", "commons",
+    "Commons", "Wikimedia Commons", 
+    "commons", "wikimedia commons",
 
     # Commons category-inline
     "Commons category-inline", "Commonscat-inline", "Commons cat-inline",
     "Commons category inline", "Commonscat inline", "Commonscatinline", "Commons-cat-inline",
+    "commons category-inline", "commonscat-inline", "commons cat-inline",
+    "commons category inline", "commonscat inline", "commonscatinline", "commons-cat-inline",
 
     # Commons and category
     "Commons and category", "Commons+cat"
+    "commons and category", "commons+cat"
 ]
 
 HEADERS = {
-    'User-Agent': 'CommonscatBot/1.0 (https://simple.wikipedia.org/wiki/User:Asteralee)'
+    'User-Agent': 'AsteraBot/1.0 (https://simple.wikipedia.org/wiki/User:AsteraBot)'
 }
 
 def login_and_get_session(username, password):
