@@ -148,7 +148,7 @@ def add_commonscat_to_page(title, session):
         'text': new_text,
         'token': csrf_token,
         'format': 'json',
-        'summary': 'Adding Commons category using P373 from Wikidata',
+        'summary': 'Bot: Adding Commons category using P373 from Wikidata',
         'assert': 'user',  # Ensures it's logged in!
         'bot': True
     })
