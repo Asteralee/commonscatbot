@@ -156,9 +156,9 @@ def add_commonscat_to_page(title, session):
     result = r.json()
     print("Edit response:", result)
     if result.get('edit', {}).get('result') == 'Success':
-        print(f"✅ Successfully added {{Commonscat}} to {title}")
+        print(f"Successfully added {{Commonscat}} to {title}")
     else:
-        print(f"❌ Failed to edit {title}: {result}")
+        print(f"Failed to edit {title}: {result}")
 
 def run_bot():
     username = os.getenv('BOT_USERNAME')
@@ -170,10 +170,10 @@ def run_bot():
 
     session = login_and_get_session(username, password)
 
-    for _ in range(10):  # Process 10 articles per run
+    for _ in range(15):  # Process 10 articles per run
         try:
             article = fetch_random_article(session)
-            print(f"\n🔍 Working on: {article}")
+            print(f"\n Working on: {article}")
             add_commonscat_to_page(article, session)
             time.sleep(3)
         except Exception as e:
