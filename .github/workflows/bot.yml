@@ -1,29 +1,30 @@
-name: Run AsteraBot
+name: Run CommonsCatBot
 
 on:
+  workflow_dispatch:  # allows manual run from GitHub UI
   schedule:
-    - cron: '30 21 * * 2'  # 9:30 PM UTC every Tuesday
-  workflow_dispatch:  # Allows manual triggering
+    - cron: '0 */6 * * *'  # runs every 6 hours, adjust as needed
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Check out repository
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: '3.8'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests mwparserfromhell
 
-      - name: Run Bot
+      - name: Run bot
         env:
           BOT_USERNAME: ${{ secrets.BOT_USERNAME }}
           BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
-        run: python bot.py  # Assuming your script is named bot.py
+        run: python bot.py
