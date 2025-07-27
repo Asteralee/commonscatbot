@@ -1,4 +1,4 @@
-name: Run CommonsCatBot
+name: Run AsteraBot
 
 on:
   workflow_dispatch:  # allows manual run from GitHub UI
