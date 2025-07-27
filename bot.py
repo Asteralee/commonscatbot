@@ -21,7 +21,7 @@ BLOCKING_TEMPLATES = [
     "commons category multi", "commonscats", "commons cat multi", "commonscat multi",
 
     # Commons
-    "Commons", "Wikimedia Commons", 
+    "Commons", "Wikimedia Commons",
     "commons", "wikimedia commons",
 
     # Commons category-inline
@@ -130,22 +130,10 @@ def fetch_commons_category_from_wikidata(title, session):
                 return claims['P373'][0]['mainsnak']['datavalue']['value']
     return None
 
-def commons_category_exists(category_name, session):
-    commons_api_url = "https://commons.wikimedia.org/w/api.php"
-    response = session.get(commons_api_url, params={
-        'action': 'query',
-        'titles': f'Category:{category_name}',
-        'format': 'json'
-    })
-    pages = response.json().get('query', {}).get('pages', {})
-    for page_id, page in pages.items():
-        if page_id != "-1":
-            return True
-    return False
-
 def insert_commonscat(text, commonscat_value):
-    commonscat_template = f"{{{{Commonscat|{commonscat_value}}}}}\n"
+    commonscat_template = f"{{{{Commonscat|{commonscat_value}}}}}"
 
+    # If "Other websites" section present, place just under it
     if "==Other websites==" in text:
         parts = text.split("==Other websites==", 1)
         before = parts[0]
@@ -159,18 +147,22 @@ def insert_commonscat(text, commonscat_value):
         section_body = '\n'.join(after_lines[:i]).rstrip()
         remainder = '\n'.join(after_lines[i:]).lstrip()
 
-        new_other_websites = section_body + commonscat_template
+        new_other_websites = section_body + "\n" + commonscat_template
         return before + "==Other websites==\n" + new_other_websites + "\n" + remainder
+
+    # Otherwise, insert above categories and DEFAULTSORT
     else:
-        # Insert just above categories and DEFAULTSORT
         lines = text.splitlines()
-        insert_index = len(lines)
-        for i in reversed(range(len(lines))):
-            line = lines[i].strip()
+        insert_index = len(lines)  # default: end of text
+
+        # Find first line of categories or DEFAULTSORT from bottom up
+        for idx in reversed(range(len(lines))):
+            line = lines[idx].strip()
             if line.startswith("[[Category:") or line.startswith("{{DEFAULTSORT"):
-                insert_index = i
-        lines.insert(insert_index, commonscat_template.strip())
-        return "\n".join(lines)
+                insert_index = idx
+        # Insert template at insert_index
+        lines.insert(insert_index, commonscat_template)
+        return '\n'.join(lines)
 
 def add_commonscat_to_page(title, session):
     response = session.get(API_URL, params={
@@ -199,10 +191,6 @@ def add_commonscat_to_page(title, session):
     commonscat_value = fetch_commons_category_from_wikidata(title, session)
     if not commonscat_value:
         print(f"No Commons category found for {title}. Skipping.")
-        return
-
-    if not commons_category_exists(commonscat_value, session):
-        print(f"Commons category '{commonscat_value}' does not exist on Wikimedia Commons. Skipping {title}.")
         return
 
     new_text = insert_commonscat(text, commonscat_value)
