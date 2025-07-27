@@ -8,7 +8,7 @@ API_URL = "https://simple.wikipedia.org/w/api.php"
 COMMONSCAT_ALIASES = [
     "Commonscat", "Commons cat", "Commonscat2", "Ccat", "Wikimedia commons cat",
     "Category commons", "C cat", "Commonscategory", "Commonsimages cat",
-    "Container cat", "Commons Category"
+    "Container cat", "Commons Category", "Commons category"
 ]
 
 HEADERS = {
@@ -19,7 +19,7 @@ def login_and_get_session(username, password):
     session = requests.Session()
     session.headers.update(HEADERS)
 
-    # Get login token
+    # Step 1: Get login token
     r1 = session.get(API_URL, params={
         'action': 'query',
         'meta': 'tokens',
@@ -28,7 +28,7 @@ def login_and_get_session(username, password):
     })
     login_token = r1.json()['query']['tokens']['logintoken']
 
-    # Log in
+    # Step 2: Log in
     r2 = session.post(API_URL, data={
         'action': 'login',
         'lgname': username,
@@ -36,7 +36,17 @@ def login_and_get_session(username, password):
         'lgtoken': login_token,
         'format': 'json'
     })
-    print("Login response:", r2.json())
+    login_result = r2.json()
+    if login_result['login']['result'] != 'Success':
+        raise Exception(f"Login failed: {login_result}")
+
+    # Step 3: Confirm login worked
+    r3 = session.get(API_URL, params={
+        'action': 'query',
+        'meta': 'userinfo',
+        'format': 'json'
+    })
+    print("Logged in as:", r3.json()['query']['userinfo']['name'])
 
     return session
 
@@ -59,7 +69,7 @@ def is_redirect(session, title):
     return any('redirect' in page for page in pages.values())
 
 def fetch_random_article(session):
-    while True:
+    for _ in range(5):  # Try 5 times max to get a good article
         response = session.get(API_URL, params={
             'action': 'query',
             'list': 'random',
@@ -70,6 +80,7 @@ def fetch_random_article(session):
         article = response.json()['query']['random'][0]['title']
         if not is_redirect(session, article):
             return article
+    raise Exception("Failed to get non-redirect article after 5 tries.")
 
 def has_commonscat(wikitext):
     wikicode = mwparserfromhell.parse(wikitext)
@@ -87,7 +98,7 @@ def fetch_commons_category_from_wikidata(title, session):
     for page in pages.values():
         if 'pageprops' in page and 'wikibase_item' in page['pageprops']:
             qid = page['pageprops']['wikibase_item']
-            wikidata_response = session.get(f"https://www.wikidata.org/w/api.php", params={
+            wikidata_response = session.get("https://www.wikidata.org/w/api.php", params={
                 'action': 'wbgetclaims',
                 'entity': qid,
                 'property': 'P373',
@@ -99,7 +110,7 @@ def fetch_commons_category_from_wikidata(title, session):
     return None
 
 def add_commonscat_to_page(title, session):
-    # Get wikitext
+    # Fetch current text
     response = session.get(API_URL, params={
         'action': 'query',
         'prop': 'revisions',
@@ -120,7 +131,7 @@ def add_commonscat_to_page(title, session):
         return
 
     if has_commonscat(text):
-        print(f"Page {title} already has a Commonscat template.")
+        print(f"{title} already has a Commonscat template.")
         return
 
     commonscat_value = fetch_commons_category_from_wikidata(title, session)
@@ -138,31 +149,36 @@ def add_commonscat_to_page(title, session):
         'token': csrf_token,
         'format': 'json',
         'summary': 'Adding Commons category using P373 from Wikidata',
-        'assert': 'user',
+        'assert': 'user',  # Ensures it's logged in!
         'bot': True
     })
 
     result = r.json()
     print("Edit response:", result)
-    if 'edit' in result and result['edit'].get('result') == 'Success':
-        print(f"Successfully added {{commonscat}} to {title}.")
+    if result.get('edit', {}).get('result') == 'Success':
+        print(f"✅ Successfully added {{Commonscat}} to {title}")
     else:
-        print(f"Failed to edit {title}: {result}")
+        print(f"❌ Failed to edit {title}: {result}")
 
 def run_bot():
     username = os.getenv('BOT_USERNAME')
     password = os.getenv('BOT_PASSWORD')
 
     if not username or not password:
-        print("Username or password not set in environment variables.")
+        print("Missing BOT_USERNAME or BOT_PASSWORD in environment.")
         return
 
     session = login_and_get_session(username, password)
-    for _ in range(10):
-        article = fetch_random_article(session)
-        print(f"\nProcessing article: {article}")
-        add_commonscat_to_page(article, session)
-        time.sleep(2)
 
-if __name__ == '__main__':
+    for _ in range(10):  # Process 10 articles per run
+        try:
+            article = fetch_random_article(session)
+            print(f"\n🔍 Working on: {article}")
+            add_commonscat_to_page(article, session)
+            time.sleep(3)
+        except Exception as e:
+            print(f"Error during processing: {e}")
+            time.sleep(2)
+
+if __name__ == "__main__":
     run_bot()
