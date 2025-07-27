@@ -5,10 +5,26 @@ import random
 import time
 
 API_URL = "https://simple.wikipedia.org/w/api.php"
-COMMONSCAT_ALIASES = [
+
+# Full list of blocking templates (Commonscat and its siblings/redirects)
+BLOCKING_TEMPLATES = [
+    # Commonscat family
     "Commonscat", "Commons cat", "Commonscat2", "Ccat", "Wikimedia commons cat",
     "Category commons", "C cat", "Commonscategory", "Commonsimages cat",
-    "Container cat", "Commons Category", "Commons category"
+    "Container cat", "Commons Category", "Commons category",
+
+    # Commons category multi
+    "Commons category multi", "Commonscats", "Commons cat multi", "Commonscat multi",
+
+    # Commons
+    "Commons", "Wikimedia Commons",
+
+    # Commons category-inline
+    "Commons category-inline", "Commonscat-inline", "Commons cat-inline",
+    "Commons category inline", "Commonscat inline", "Commonscatinline", "Commons-cat-inline",
+
+    # Commons and category
+    "Commons and category", "Commons+cat"
 ]
 
 HEADERS = {
@@ -19,7 +35,6 @@ def login_and_get_session(username, password):
     session = requests.Session()
     session.headers.update(HEADERS)
 
-    # Step 1: Get login token
     r1 = session.get(API_URL, params={
         'action': 'query',
         'meta': 'tokens',
@@ -28,7 +43,6 @@ def login_and_get_session(username, password):
     })
     login_token = r1.json()['query']['tokens']['logintoken']
 
-    # Step 2: Log in
     r2 = session.post(API_URL, data={
         'action': 'login',
         'lgname': username,
@@ -40,7 +54,6 @@ def login_and_get_session(username, password):
     if login_result['login']['result'] != 'Success':
         raise Exception(f"Login failed: {login_result}")
 
-    # Step 3: Confirm login worked
     r3 = session.get(API_URL, params={
         'action': 'query',
         'meta': 'userinfo',
@@ -69,7 +82,7 @@ def is_redirect(session, title):
     return any('redirect' in page for page in pages.values())
 
 def fetch_random_article(session):
-    for _ in range(5):  # Try 5 times max to get a good article
+    for _ in range(5):
         response = session.get(API_URL, params={
             'action': 'query',
             'list': 'random',
@@ -85,7 +98,7 @@ def fetch_random_article(session):
 def has_commonscat(wikitext):
     wikicode = mwparserfromhell.parse(wikitext)
     templates = wikicode.filter_templates()
-    return any(template.name.strip() in COMMONSCAT_ALIASES for template in templates)
+    return any(template.name.strip_code().strip() in BLOCKING_TEMPLATES for template in templates)
 
 def fetch_commons_category_from_wikidata(title, session):
     r = session.get(API_URL, params={
@@ -109,8 +122,28 @@ def fetch_commons_category_from_wikidata(title, session):
                 return claims['P373'][0]['mainsnak']['datavalue']['value']
     return None
 
+def insert_commonscat(text, commonscat_value):
+    commonscat_template = f"\n{{{{Commonscat|{commonscat_value}}}}}"
+
+    if "==Other websites==" in text:
+        parts = text.split("==Other websites==", 1)
+        before = parts[0]
+        after = parts[1]
+
+        after_lines = after.splitlines()
+        i = 0
+        while i < len(after_lines) and (after_lines[i].strip() == '' or after_lines[i].strip().startswith("*")):
+            i += 1
+
+        section_body = '\n'.join(after_lines[:i]).rstrip()
+        remainder = '\n'.join(after_lines[i:]).lstrip()
+
+        new_other_websites = section_body + commonscat_template
+        return before + "==Other websites==\n" + new_other_websites + "\n" + remainder
+    else:
+        return text.strip() + "\n\n" + commonscat_template
+
 def add_commonscat_to_page(title, session):
-    # Fetch current text
     response = session.get(API_URL, params={
         'action': 'query',
         'prop': 'revisions',
@@ -131,7 +164,7 @@ def add_commonscat_to_page(title, session):
         return
 
     if has_commonscat(text):
-        print(f"{title} already has a Commonscat template.")
+        print(f"{title} already has a Commons-related template. Skipping.")
         return
 
     commonscat_value = fetch_commons_category_from_wikidata(title, session)
@@ -139,7 +172,7 @@ def add_commonscat_to_page(title, session):
         print(f"No Commons category found for {title}. Skipping.")
         return
 
-    new_text = text.strip() + f"\n\n{{{{Commonscat|{commonscat_value}}}}}"
+    new_text = insert_commonscat(text, commonscat_value)
     csrf_token = get_csrf_token(session)
 
     r = session.post(API_URL, data={
@@ -149,16 +182,16 @@ def add_commonscat_to_page(title, session):
         'token': csrf_token,
         'format': 'json',
         'summary': 'Bot: Adding Commons category using P373 from Wikidata',
-        'assert': 'user',  # Ensures it's logged in!
+        'assert': 'user',
         'bot': True
     })
 
     result = r.json()
     print("Edit response:", result)
     if result.get('edit', {}).get('result') == 'Success':
-        print(f"Successfully added {{Commonscat}} to {title}")
+        print(f"✅ Successfully added {{Commonscat}} to {title}")
     else:
-        print(f"Failed to edit {title}: {result}")
+        print(f"❌ Failed to edit {title}: {result}")
 
 def run_bot():
     username = os.getenv('BOT_USERNAME')
@@ -170,14 +203,14 @@ def run_bot():
 
     session = login_and_get_session(username, password)
 
-    for _ in range(15):  # Process 10 articles per run
+    for _ in range(15):
         try:
             article = fetch_random_article(session)
-            print(f"\n Working on: {article}")
+            print(f"\n🔍 Working on: {article}")
             add_commonscat_to_page(article, session)
             time.sleep(3)
         except Exception as e:
-            print(f"Error during processing: {e}")
+            print(f"⚠️ Error during processing: {e}")
             time.sleep(2)
 
 if __name__ == "__main__":
