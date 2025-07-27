@@ -17,7 +17,7 @@ BLOCKING_TEMPLATES = [
     "Commons category multi", "Commonscats", "Commons cat multi", "Commonscat multi",
 
     # Commons
-    "Commons", "Wikimedia Commons",
+    "Commons", "Wikimedia Commons", "commons",
 
     # Commons category-inline
     "Commons category-inline", "Commonscat-inline", "Commons cat-inline",
