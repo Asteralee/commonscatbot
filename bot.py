@@ -1,98 +1,25 @@
-import requests
-import json
-import random
 import os
+import requests
+import mwparserfromhell
+import random
+import time
 
 API_URL = "https://simple.wikipedia.org/w/api.php"
-WIKIDATA_URL = "https://www.wikidata.org/w/api.php"
-
-# Template names that redirect to {{Commons category}}
-COMMONSCAT_REDIRECTS = [
-    "Commons category", "Commonscat", "Commons cat", "Commonscat2", "Ccat",
-    "Wikimedia commons cat", "Category commons", "C cat", "Commonscategory",
-    "Commonsimages cat", "Container cat"
+COMMONSCAT_ALIASES = [
+    "Commonscat", "Commons cat", "Commonscat2", "Ccat", "Wikimedia commons cat",
+    "Category commons", "C cat", "Commonscategory", "Commonsimages cat",
+    "Container cat", "Commons Category"
 ]
 
-username = os.environ['BOT_USERNAME']
-password = os.environ['BOT_PASSWORD']
+HEADERS = {
+    'User-Agent': 'CommonscatBot/1.0 (https://simple.wikipedia.org/wiki/User:Asteralee)'
+}
 
+def login_and_get_session(username, password):
+    session = requests.Session()
+    session.headers.update(HEADERS)
 
-def get_random_articles():
-    params = {
-        'action': 'query',
-        'list': 'random',
-        'rnnamespace': 0,
-        'rnlimit': 15,
-        'format': 'json'
-    }
-    response = requests.get(API_URL, params=params)
-    if response.status_code != 200 or 'application/json' not in response.headers.get('Content-Type', ''):
-        print("Failed to fetch random articles.")
-        return []
-
-    data = response.json()
-    titles = [item['title'] for item in data['query']['random']]
-
-    check_params = {
-        'action': 'query',
-        'titles': '|'.join(titles),
-        'prop': 'info',
-        'format': 'json'
-    }
-    check_response = requests.get(API_URL, params=check_params)
-    if check_response.status_code != 200 or 'application/json' not in check_response.headers.get('Content-Type', ''):
-        print("Failed to filter redirects.")
-        return []
-
-    check_data = check_response.json()
-    non_redirects = [page['title'] for page in check_data['query']['pages'].values() if 'redirect' not in page]
-    return random.sample(non_redirects, min(len(non_redirects), random.randint(3, 10)))
-
-
-def page_has_commonscat(wikitext):
-    for template in COMMONSCAT_REDIRECTS:
-        if f"{{{{{template}" in wikitext:
-            return True
-    return False
-
-
-def get_commons_category_from_wikidata(title):
-    # Step 1: Get Wikidata entity ID
-    site_params = {
-        'action': 'query',
-        'titles': title,
-        'prop': 'pageprops',
-        'format': 'json'
-    }
-    site_response = requests.get(API_URL, params=site_params)
-    if site_response.status_code != 200 or 'application/json' not in site_response.headers.get('Content-Type', ''):
-        print(f"Failed to fetch Wikidata entity for {title}")
-        return None
-    site_data = site_response.json()
-    pages = site_data['query']['pages']
-    entity_id = next(iter(pages.values())).get('pageprops', {}).get('wikibase_item')
-    if not entity_id:
-        return None
-
-    # Step 2: Get P373 from Wikidata
-    wd_params = {
-        'action': 'wbgetclaims',
-        'entity': entity_id,
-        'property': 'P373',
-        'format': 'json'
-    }
-    wd_response = requests.get(WIKIDATA_URL, params=wd_params)
-    if wd_response.status_code != 200 or 'application/json' not in wd_response.headers.get('Content-Type', ''):
-        print(f"Failed to fetch P373 for {title}")
-        return None
-    wd_data = wd_response.json()
-    try:
-        return wd_data['claims']['P373'][0]['mainsnak']['datavalue']['value']
-    except (KeyError, IndexError):
-        return None
-
-
-def login(session):
+    # Get login token
     r1 = session.get(API_URL, params={
         'action': 'query',
         'meta': 'tokens',
@@ -101,6 +28,7 @@ def login(session):
     })
     login_token = r1.json()['query']['tokens']['logintoken']
 
+    # Log in
     r2 = session.post(API_URL, data={
         'action': 'login',
         'lgname': username,
@@ -108,8 +36,9 @@ def login(session):
         'lgtoken': login_token,
         'format': 'json'
     })
-    print("Logged in as", username)
+    print("Login response:", r2.json())
 
+    return session
 
 def get_csrf_token(session):
     r = session.get(API_URL, params={
@@ -119,62 +48,121 @@ def get_csrf_token(session):
     })
     return r.json()['query']['tokens']['csrftoken']
 
+def is_redirect(session, title):
+    response = session.get(API_URL, params={
+        'action': 'query',
+        'titles': title,
+        'redirects': False,
+        'format': 'json'
+    })
+    pages = response.json()['query']['pages']
+    return any('redirect' in page for page in pages.values())
 
-def add_commonscat_to_page(title):
-    session = requests.Session()
-    login(session)
-    token = get_csrf_token(session)
+def fetch_random_article(session):
+    while True:
+        response = session.get(API_URL, params={
+            'action': 'query',
+            'list': 'random',
+            'rnnamespace': 0,
+            'rnlimit': 1,
+            'format': 'json'
+        })
+        article = response.json()['query']['random'][0]['title']
+        if not is_redirect(session, article):
+            return article
 
+def has_commonscat(wikitext):
+    wikicode = mwparserfromhell.parse(wikitext)
+    templates = wikicode.filter_templates()
+    return any(template.name.strip() in COMMONSCAT_ALIASES for template in templates)
+
+def fetch_commons_category_from_wikidata(title, session):
     r = session.get(API_URL, params={
+        'action': 'query',
+        'prop': 'pageprops',
+        'titles': title,
+        'format': 'json'
+    })
+    pages = r.json()['query']['pages']
+    for page in pages.values():
+        if 'pageprops' in page and 'wikibase_item' in page['pageprops']:
+            qid = page['pageprops']['wikibase_item']
+            wikidata_response = session.get(f"https://www.wikidata.org/w/api.php", params={
+                'action': 'wbgetclaims',
+                'entity': qid,
+                'property': 'P373',
+                'format': 'json'
+            })
+            claims = wikidata_response.json().get('claims', {})
+            if 'P373' in claims:
+                return claims['P373'][0]['mainsnak']['datavalue']['value']
+    return None
+
+def add_commonscat_to_page(title, session):
+    # Get wikitext
+    response = session.get(API_URL, params={
         'action': 'query',
         'prop': 'revisions',
         'titles': title,
         'rvslots': 'main',
         'rvprop': 'content',
+        'formatversion': 2,
         'format': 'json'
     })
-    if r.status_code != 200 or 'application/json' not in r.headers.get('Content-Type', ''):
-        print(f"Failed to get content of {title}")
+    try:
+        page = response.json()['query']['pages'][0]
+        if 'missing' in page:
+            print(f"Page {title} does not exist.")
+            return
+        text = page['revisions'][0]['slots']['main']['content']
+    except Exception as e:
+        print(f"Failed to fetch {title}: {e}")
         return
 
-    pages = r.json()['query']['pages']
-    pageid, page = next(iter(pages.items()))
-    if 'revisions' not in page:
-        print(f"No content found for {title}")
+    if has_commonscat(text):
+        print(f"Page {title} already has a Commonscat template.")
         return
 
-    wikitext = page['revisions'][0]['slots']['main']['*']
-    if page_has_commonscat(wikitext):
-        print(f"{title} already has a commons category template. Skipping.")
-        return
-
-    commonscat_value = get_commons_category_from_wikidata(title)
+    commonscat_value = fetch_commons_category_from_wikidata(title, session)
     if not commonscat_value:
         print(f"No Commons category found for {title}. Skipping.")
         return
 
-    new_text = wikitext + f"\n\n{{{{Commons category|{commonscat_value}}}}}"
+    new_text = text.strip() + f"\n\n{{{{Commonscat|{commonscat_value}}}}}"
+    csrf_token = get_csrf_token(session)
 
-    edit_response = session.post(API_URL, data={
+    r = session.post(API_URL, data={
         'action': 'edit',
         'title': title,
         'text': new_text,
-        'token': token,
+        'token': csrf_token,
         'format': 'json',
-        'summary': 'Adding Commons category from Wikidata (P373)'
+        'summary': 'Adding Commons category using P373 from Wikidata',
+        'assert': 'user',
+        'bot': True
     })
 
-    if edit_response.status_code == 200:
+    result = r.json()
+    print("Edit response:", result)
+    if 'edit' in result and result['edit'].get('result') == 'Success':
         print(f"Successfully added {{commonscat}} to {title}.")
     else:
-        print(f"Failed to edit {title}.")
-
+        print(f"Failed to edit {title}: {result}")
 
 def run_bot():
-    articles = get_random_articles()
-    for article in articles:
-        add_commonscat_to_page(article)
+    username = os.getenv('BOT_USERNAME')
+    password = os.getenv('BOT_PASSWORD')
 
+    if not username or not password:
+        print("Username or password not set in environment variables.")
+        return
+
+    session = login_and_get_session(username, password)
+    for _ in range(10):
+        article = fetch_random_article(session)
+        print(f"\nProcessing article: {article}")
+        add_commonscat_to_page(article, session)
+        time.sleep(2)
 
 if __name__ == '__main__':
     run_bot()
