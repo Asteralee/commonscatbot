@@ -238,4 +238,13 @@ def run_bot():
 
     for _ in range(15):
         try:
-            article = fetch
+            article = fetch_random_article(session)
+            print(f"Working on: {article}")
+            add_commonscat_to_page(article, session)
+            time.sleep(3)
+        except Exception as e:
+            print(f"Error during processing: {e}")
+            time.sleep(2)
+
+if __name__ == "__main__":
+    run_bot()
