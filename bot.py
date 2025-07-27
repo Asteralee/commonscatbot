@@ -31,7 +31,7 @@ BLOCKING_TEMPLATES = [
     "commons category inline", "commonscat inline", "commonscatinline", "commons-cat-inline",
 
     # Commons and category
-    "Commons and category", "Commons+cat"
+    "Commons and category", "Commons+cat",
     "commons and category", "commons+cat"
 ]
 
@@ -148,8 +148,18 @@ def insert_commonscat(text, commonscat_value):
 
         new_other_websites = section_body + commonscat_template
         return before + "==Other websites==\n" + new_other_websites + "\n" + remainder
+
     else:
-        return text.strip() + "\n\n" + commonscat_template
+        lines = text.strip().splitlines()
+        insert_index = len(lines)
+
+        for i, line in enumerate(reversed(lines)):
+            if line.strip().startswith("[[Category:") or line.strip().lower().startswith("{{defaultsort:"):
+                insert_index = len(lines) - i - 1
+                break
+
+        new_lines = lines[:insert_index] + [commonscat_template] + lines[insert_index:]
+        return '\n'.join(new_lines)
 
 def add_commonscat_to_page(title, session):
     response = session.get(API_URL, params={
@@ -197,9 +207,9 @@ def add_commonscat_to_page(title, session):
     result = r.json()
     print("Edit response:", result)
     if result.get('edit', {}).get('result') == 'Success':
-        print(f"✅ Successfully added {{Commonscat}} to {title}")
+        print(f"Successfully added {{Commonscat}} to {title}")
     else:
-        print(f"❌ Failed to edit {title}: {result}")
+        print(f"Failed to edit {title}: {result}")
 
 def run_bot():
     username = os.getenv('BOT_USERNAME')
@@ -214,11 +224,11 @@ def run_bot():
     for _ in range(15):
         try:
             article = fetch_random_article(session)
-            print(f"\n🔍 Working on: {article}")
+            print(f"\nWorking on: {article}")
             add_commonscat_to_page(article, session)
             time.sleep(3)
         except Exception as e:
-            print(f"⚠️ Error during processing: {e}")
+            print(f"Error during processing: {e}")
             time.sleep(2)
 
 if __name__ == "__main__":
