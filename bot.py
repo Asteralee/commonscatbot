@@ -6,31 +6,21 @@ import time
 
 API_URL = "https://simple.wikipedia.org/w/api.php"
 
-# Full list of blocking templates (Commonscat and its siblings/redirects)
 BLOCKING_TEMPLATES = [
-    # Commonscat family
     "Commonscat", "Commons cat", "Commonscat2", "Ccat", "Wikimedia commons cat",
     "Category commons", "C cat", "Commonscategory", "Commonsimages cat",
     "Container cat", "Commons Category", "Commons category", "commonscat",
     "commons cat", "commonscat2", "ccat", "wikimedia commons cat",
     "category commons", "c cat", "commonscategory", "commonsimages cat",
     "container cat", "commons category", "commons category",
-
-    # Commons category multi
     "Commons category multi", "Commonscats", "Commons cat multi", "Commonscat multi",
     "commons category multi", "commonscats", "commons cat multi", "commonscat multi",
-
-    # Commons
     "Commons", "Wikimedia Commons",
     "commons", "wikimedia commons",
-
-    # Commons category-inline
     "Commons category-inline", "Commonscat-inline", "Commons cat-inline",
     "Commons category inline", "Commonscat inline", "Commonscatinline", "Commons-cat-inline",
     "commons category-inline", "commonscat-inline", "commons cat-inline",
     "commons category inline", "commonscat inline", "commonscatinline", "commons-cat-inline",
-
-    # Commons and category
     "Commons and category", "Commons+cat",
     "commons and category", "commons+cat"
 ]
@@ -106,7 +96,62 @@ def fetch_random_article(session):
 def has_commonscat(wikitext):
     wikicode = mwparserfromhell.parse(wikitext)
     templates = wikicode.filter_templates()
-    return any(template.name.strip_code().strip() in BLOCKING_TEMPLATES for template in templates)
+    for template in templates:
+        name = template.name.strip_code().strip().lower()
+        if name in [t.lower() for t in BLOCKING_TEMPLATES]:
+            return True
+        if name == "sister project links":
+            if template.has("commonscat") or template.has("c"):
+                return True
+    return False
+
+def modify_sister_project_links(wikitext, commonscat_value):
+    wikicode = mwparserfromhell.parse(wikitext)
+    modified = False
+
+    for template in wikicode.filter_templates():
+        name = template.name.strip_code().strip().lower()
+        if name == "sister project links":
+            if not template.has("commonscat"):
+                template.add("commonscat", "yes")
+                modified = True
+            if not template.has("c"):
+                template.add("c", commonscat_value)
+                modified = True
+            break
+
+    return str(wikicode) if modified else None
+
+def insert_commonscat(text, commonscat_value):
+    commonscat_template = f"{{{{Commonscat|{commonscat_value}}}}}"
+
+    if "==Other websites==" in text:
+        parts = text.split("==Other websites==", 1)
+        before = parts[0]
+        after = parts[1]
+
+        after_lines = after.splitlines()
+        i = 0
+        while i < len(after_lines) and (after_lines[i].strip() == '' or after_lines[i].strip().startswith("*")):
+            i += 1
+
+        section_body = '\n'.join(after_lines[:i]).rstrip()
+        remainder = '\n'.join(after_lines[i:]).lstrip()
+
+        new_other_websites = section_body + "\n" + commonscat_template
+        return before + "==Other websites==\n" + new_other_websites + "\n" + remainder
+
+    # Insert above DEFAULTSORT or categories
+    lines = text.splitlines()
+    insert_index = len(lines)
+
+    for idx in reversed(range(len(lines))):
+        line = lines[idx].strip()
+        if line.startswith("{{DEFAULTSORT") or line.startswith("[[Category:"):
+            insert_index = idx
+
+    lines.insert(insert_index, commonscat_template)
+    return '\n'.join(lines)
 
 def fetch_commons_category_from_wikidata(title, session):
     r = session.get(API_URL, params={
@@ -129,40 +174,6 @@ def fetch_commons_category_from_wikidata(title, session):
             if 'P373' in claims:
                 return claims['P373'][0]['mainsnak']['datavalue']['value']
     return None
-
-def insert_commonscat(text, commonscat_value):
-    commonscat_template = f"{{{{Commonscat|{commonscat_value}}}}}"
-
-    # If "Other websites" section present, place just under it
-    if "==Other websites==" in text:
-        parts = text.split("==Other websites==", 1)
-        before = parts[0]
-        after = parts[1]
-
-        after_lines = after.splitlines()
-        i = 0
-        while i < len(after_lines) and (after_lines[i].strip() == '' or after_lines[i].strip().startswith("*")):
-            i += 1
-
-        section_body = '\n'.join(after_lines[:i]).rstrip()
-        remainder = '\n'.join(after_lines[i:]).lstrip()
-
-        new_other_websites = section_body + "\n" + commonscat_template
-        return before + "==Other websites==\n" + new_other_websites + "\n" + remainder
-
-    # Otherwise, insert above categories and DEFAULTSORT
-    else:
-        lines = text.splitlines()
-        insert_index = len(lines)  # default: end of text
-
-        # Find first line of categories or DEFAULTSORT from bottom up
-        for idx in reversed(range(len(lines))):
-            line = lines[idx].strip()
-            if line.startswith("[[Category:") or line.startswith("{{DEFAULTSORT"):
-                insert_index = idx
-        # Insert template at insert_index
-        lines.insert(insert_index, commonscat_template)
-        return '\n'.join(lines)
 
 def add_commonscat_to_page(title, session):
     response = session.get(API_URL, params={
@@ -193,9 +204,11 @@ def add_commonscat_to_page(title, session):
         print(f"No Commons category found for {title}. Skipping.")
         return
 
-    new_text = insert_commonscat(text, commonscat_value)
-    csrf_token = get_csrf_token(session)
+    new_text = modify_sister_project_links(text, commonscat_value)
+    if not new_text:
+        new_text = insert_commonscat(text, commonscat_value)
 
+    csrf_token = get_csrf_token(session)
     r = session.post(API_URL, data={
         'action': 'edit',
         'title': title,
@@ -210,9 +223,9 @@ def add_commonscat_to_page(title, session):
     result = r.json()
     print("Edit response:", result)
     if result.get('edit', {}).get('result') == 'Success':
-        print(f"Successfully added {{Commonscat}} to {title}")
+        print(f"✅ Successfully edited: {title}")
     else:
-        print(f"Failed to edit {title}: {result}")
+        print(f"❌ Failed to edit {title}: {result}")
 
 def run_bot():
     username = os.getenv('BOT_USERNAME')
