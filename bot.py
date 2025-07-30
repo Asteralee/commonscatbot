@@ -22,7 +22,22 @@ BLOCKING_TEMPLATES = [
     "commons category-inline", "commonscat-inline", "commons cat-inline",
     "commons category inline", "commonscat inline", "commonscatinline", "commons-cat-inline",
     "Commons and category", "Commons+cat",
-    "commons and category", "commons+cat"
+    "commons and category", "commons+cat",
+    "C18 year in topic"  # <-- Added to BLOCKING_TEMPLATES
+]
+
+STUB_TEMPLATES = [
+    "Multistub", "Stub", "Acid-base disorders", "Actor-stub", "Asia-stub", 
+    "Biography-stub", "Biology-stub", "Canada-stub", "Chem-stub", 
+    "Consequences of external causes", "Disorders of the breast", "Europe-stub", 
+    "Expand list", "Food-stub", "France-geo-stub", "Geo-stub", "History-stub", 
+    "Infobox medical intervention", "Japan-sports-bio-stub", "Japan-stub", 
+    "Lit-stub", "Math-stub", "Med-stub", "Military-stub", "Movie-stub", 
+    "Music-stub", "North-America-stub", "Performing-arts-stub", "Physics-stub", 
+    "Politics-stub", "Religion-stub", "Sci-stub", "Shock types", "Sport-stub", 
+    "Sports-biography-stub", "Switzerland-stub", "Tech-stub", "Transport-stub", 
+    "Tv-stub", "UK-stub", "US-actor-stub", "US-biography-stub", "US-geo-stub", 
+    "US-sports-bio-stub", "US-stub", "Video-game-stub", "Weather-stub"
 ]
 
 HEADERS = {
@@ -125,31 +140,24 @@ def modify_sister_project_links(wikitext, commonscat_value):
 def insert_commonscat(text, commonscat_value):
     commonscat_template = f"{{{{Commonscat|{commonscat_value}}}}}"
 
-    if "==Other websites==" in text:
-        parts = text.split("==Other websites==", 1)
-        before = parts[0]
-        after = parts[1]
-
-        after_lines = after.splitlines()
-        i = 0
-        while i < len(after_lines) and (after_lines[i].strip() == '' or after_lines[i].strip().startswith("*")):
-            i += 1
-
-        section_body = '\n'.join(after_lines[:i]).rstrip()
-        remainder = '\n'.join(after_lines[i:]).lstrip()
-
-        new_other_websites = section_body + "\n" + commonscat_template
-        return before + "==Other websites==\n" + new_other_websites + "\n" + remainder
-
-    # Insert above DEFAULTSORT or categories
+    # Check for stub templates and insert above them
     lines = text.splitlines()
     insert_index = len(lines)
 
     for idx in reversed(range(len(lines))):
         line = lines[idx].strip()
-        if line.startswith("{{DEFAULTSORT") or line.startswith("[[Category:"):
-            insert_index = idx
 
+        # Check if the line contains any stub templates
+        for stub in STUB_TEMPLATES:
+            if line.startswith("{{" + stub):
+                insert_index = idx
+                break
+
+        # If we already found a stub, don't check further
+        if insert_index < len(lines):
+            break
+
+    # If no stub template is found, insert at the end
     lines.insert(insert_index, commonscat_template)
     return '\n'.join(lines)
 
