@@ -23,7 +23,7 @@ BLOCKING_TEMPLATES = [
     "commons category inline", "commonscat inline", "commonscatinline", "commons-cat-inline",
     "Commons and category", "Commons+cat",
     "commons and category", "commons+cat",
-    "C18 year in topic"  # <-- Added to BLOCKING_TEMPLATES
+    "C18 year in topic", 
 ]
 
 STUB_TEMPLATES = [
@@ -37,7 +37,7 @@ STUB_TEMPLATES = [
     "Politics-stub", "Religion-stub", "Sci-stub", "Shock types", "Sport-stub", 
     "Sports-biography-stub", "Switzerland-stub", "Tech-stub", "Transport-stub", 
     "Tv-stub", "UK-stub", "US-actor-stub", "US-biography-stub", "US-geo-stub", 
-    "US-sports-bio-stub", "US-stub", "Video-game-stub", "Weather-stub"
+    "US-sports-bio-stub", "US-stub", "Video-game-stub", "Weather-stub",
 ]
 
 HEADERS = {
