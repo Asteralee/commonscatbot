@@ -2,7 +2,6 @@ import os
 import re
 import requests
 import mwparserfromhell
-import random
 import time
 
 API_URL = "https://simple.wikipedia.org/w/api.php"
@@ -10,6 +9,40 @@ API_URL = "https://simple.wikipedia.org/w/api.php"
 HEADERS = {
     'User-Agent': 'AsteraBot/1.0 (https://simple.wikipedia.org/wiki/User:AsteraBot)'
 }
+
+# Templates that indicate a Commonscat or related already exists
+BLOCKING_TEMPLATES = [
+    "Commonscat", "Commons cat", "Commonscat2", "Ccat", "Wikimedia commons cat",
+    "Category commons", "C cat", "Commonscategory", "Commonsimages cat",
+    "Container cat", "Commons Category", "Commons category", "commonscat",
+    "commons cat", "commonscat2", "ccat", "wikimedia commons cat",
+    "category commons", "c cat", "commonscategory", "commonsimages cat",
+    "container cat", "commons category", "Commons category multi", "Commonscats",
+    "Commons cat multi", "Commonscat multi", "commons category multi", "commonscats",
+    "commons cat multi", "commonscat multi", "Commons", "Wikimedia Commons",
+    "commons", "wikimedia commons", "Commons category-inline", "Commonscat-inline",
+    "Commons cat-inline", "Commons category inline", "Commonscat inline",
+    "Commonscatinline", "Commons-cat-inline", "commons category-inline",
+    "commonscat-inline", "commons cat-inline", "commons category inline",
+    "commonscat inline", "commonscatinline", "commons-cat-inline",
+    "Commons and category", "Commons+cat", "commons and category", "commons+cat",
+    "C18 year in topic"
+]
+
+# Known stub templates (used for positioning)
+STUB_TEMPLATES = [
+    "Multistub", "Stub", "Acid-base disorders", "Actor-stub", "Asia-stub", 
+    "Biography-stub", "Biology-stub", "Canada-stub", "Chem-stub", 
+    "Consequences of external causes", "Disorders of the breast", "Europe-stub", 
+    "Expand list", "Food-stub", "France-geo-stub", "Geo-stub", "History-stub", 
+    "Infobox medical intervention", "Japan-sports-bio-stub", "Japan-stub", 
+    "Lit-stub", "Math-stub", "Med-stub", "Military-stub", "Movie-stub", 
+    "Music-stub", "North-America-stub", "Performing-arts-stub", "Physics-stub", 
+    "Politics-stub", "Religion-stub", "Sci-stub", "Shock types", "Sport-stub", 
+    "Sports-biography-stub", "Switzerland-stub", "Tech-stub", "Transport-stub", 
+    "Tv-stub", "UK-stub", "US-actor-stub", "US-biography-stub", "US-geo-stub", 
+    "US-sports-bio-stub", "US-stub", "Video-game-stub", "Weather-stub"
+]
 
 def login_and_get_session(username, password):
     session = requests.Session()
@@ -34,7 +67,7 @@ def login_and_get_session(username, password):
     if r2.json()['login']['result'] != 'Success':
         raise Exception("Login failed!")
 
-    print("Logged in as:", username)
+    print("✅ Logged in as:", username)
     return session
 
 def get_csrf_token(session):
@@ -72,8 +105,10 @@ def has_commonscat(wikitext):
     code = mwparserfromhell.parse(wikitext)
     for tmpl in code.filter_templates():
         name = tmpl.name.strip_code().strip().lower()
-        if "commonscat" in name or name == "sister project links":
-            if name != "sister project links" or tmpl.has("commonscat") or tmpl.has("c"):
+        if name in [t.lower() for t in BLOCKING_TEMPLATES]:
+            return True
+        if name == "sister project links":
+            if tmpl.has("commonscat") or tmpl.has("c"):
                 return True
     return False
 
@@ -85,7 +120,7 @@ def extract_template_name(line):
 
 def is_stub_template(line):
     tmpl_name = extract_template_name(line)
-    return tmpl_name and tmpl_name.lower().endswith("-stub")
+    return tmpl_name and tmpl_name.strip().lower().endswith("-stub")
 
 def is_navbox_template(session, template_name):
     title = f"Template:{template_name}"
@@ -110,7 +145,7 @@ def insert_commonscat(text, commonscat_value, session):
     lines = text.splitlines()
     insert_index = len(lines)
 
-    # If "Other websites" or "External links" section is found
+    # If there's an Other websites section
     for idx, line in enumerate(lines):
         if re.match(r"^==+\s*(Other websites|External links)\s*==+", line, re.IGNORECASE):
             insert_index = idx + 1
@@ -120,7 +155,7 @@ def insert_commonscat(text, commonscat_value, session):
                 lines.insert(insert_index, commonscat_template)
             return '\n'.join(lines)
 
-    # Search from bottom for stub or navbox templates
+    # Otherwise, look for stub or navbox templates
     for idx in reversed(range(len(lines))):
         line = lines[idx].strip()
         if not line:
@@ -172,50 +207,60 @@ def add_commonscat_to_page(title, session):
 
     page = r.json()['query']['pages'][0]
     if 'missing' in page:
-        print(f"{title} does not exist.")
+        print(f"Page {title} does not exist.")
         return
 
     wikitext = page['revisions'][0]['slots']['main']['content']
     if has_commonscat(wikitext):
-        print(f"{title} already has Commonscat.")
+        print(f"⛔ {title} already has Commons-related template.")
         return
 
     commonscat_value = fetch_commons_category_from_wikidata(title, session)
     if not commonscat_value:
-        print(f"No Commonscat in Wikidata for {title}.")
+        print(f"⚠️ No Commons category found for {title}")
         return
 
     new_text = insert_commonscat(wikitext, commonscat_value, session)
-    csrf_token = get_csrf_token(session)
+    if new_text == wikitext:
+        print(f"Nothing changed for {title}")
+        return
 
+    token = get_csrf_token(session)
     r2 = session.post(API_URL, data={
         'action': 'edit',
         'title': title,
         'text': new_text,
-        'token': csrf_token,
+        'token': token,
+        'summary': 'Bot: Adding Commons category using P373 from Wikidata',
         'format': 'json',
-        'summary': 'Bot: Add Commonscat (using P373 from Wikidata)',
         'assert': 'user',
         'bot': True
     })
-    print("Edit:", r2.json().get('edit', {}))
+
+    result = r2.json()
+    if result.get('edit', {}).get('result') == 'Success':
+        print(f"✅ Successfully edited: {title}")
+    else:
+        print(f"❌ Failed to edit {title}: {result}")
 
 def run_bot():
-    user = os.getenv('BOT_USERNAME')
-    pw = os.getenv('BOT_PASSWORD')
-    if not user or not pw:
-        print("Missing credentials.")
-        return
-    session = login_and_get_session(user, pw)
+    username = os.getenv("BOT_USERNAME")
+    password = os.getenv("BOT_PASSWORD")
 
-    for _ in range(15):
+    if not username or not password:
+        print("Missing BOT_USERNAME or BOT_PASSWORD.")
+        return
+
+    session = login_and_get_session(username, password)
+
+    for _ in range(10):
         try:
             title = fetch_random_article(session)
-            print(f"Now editing: {title}")
+            print(f"\n📝 Processing: {title}")
             add_commonscat_to_page(title, session)
             time.sleep(3)
         except Exception as e:
-            print(f"Error occurred: {e}")
+            print(f"⚠️ Error: {e}")
             time.sleep(2)
 
 if __name__ == "__main__":
