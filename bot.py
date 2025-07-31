@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 import mwparserfromhell
 import random
@@ -137,53 +138,17 @@ def modify_sister_project_links(wikitext, commonscat_value):
 
     return str(wikicode) if modified else None
 
-def insert_commonscat(text, commonscat_value):
-    commonscat_template = f"{{{{Commonscat|{commonscat_value}}}}}"
-
-    # Check for stub templates and insert above them
-    lines = text.splitlines()
-    insert_index = len(lines)
-
-    for idx in reversed(range(len(lines))):
-        line = lines[idx].strip()
-
-        # Check if the line contains any stub templates
-        for stub in STUB_TEMPLATES:
-            if line.startswith("{{" + stub):
-                insert_index = idx
-                break
-
-        # If we already found a stub, don't check further
-        if insert_index < len(lines):
-            break
-
-    # If no stub template is found, insert at the end
-    lines.insert(insert_index, commonscat_template)
-    return '\n'.join(lines)
-
-def fetch_commons_category_from_wikidata(title, session):
-    r = session.get(API_URL, params={
-        'action': 'query',
-        'prop': 'pageprops',
-        'titles': title,
-        'format': 'json'
-    })
-    pages = r.json()['query']['pages']
-    for page in pages.values():
-        if 'pageprops' in page and 'wikibase_item' in page['pageprops']:
-            qid = page['pageprops']['wikibase_item']
-            wikidata_response = session.get("https://www.wikidata.org/w/api.php", params={
-                'action': 'wbgetclaims',
-                'entity': qid,
-                'property': 'P373',
-                'format': 'json'
-            })
-            claims = wikidata_response.json().get('claims', {})
-            if 'P373' in claims:
-                return claims['P373'][0]['mainsnak']['datavalue']['value']
+def extract_template_name(line):
+    """Extract the template name from a line like {{Foo|bar}} or {{Foo}}."""
+    match = re.match(r"^\{\{\s*([^\|\}]+)", line)
+    if match:
+        return match.group(1).strip()
     return None
 
-def add_commonscat_to_page(title, session):
+def is_navbox_template(session, template_name):
+    """Check if a given template is a navbox by fetching its wikitext and looking for '{{Navbox'."""
+    title = f"Template:{template_name}"
+
     response = session.get(API_URL, params={
         'action': 'query',
         'prop': 'revisions',
@@ -193,66 +158,143 @@ def add_commonscat_to_page(title, session):
         'formatversion': 2,
         'format': 'json'
     })
-    try:
-        page = response.json()['query']['pages'][0]
-        if 'missing' in page:
-            print(f"Page {title} does not exist.")
-            return
-        text = page['revisions'][0]['slots']['main']['content']
-    except Exception as e:
-        print(f"Failed to fetch {title}: {e}")
+
+    pages = response.json().get('query', {}).get('pages', [])
+    if not pages or 'revisions' not in pages[0]:
+        return False
+
+    content = pages[0]['revisions'][0]['slots']['main']['content'].lower()
+    return ('{{navbox' in content or
+            '{{navbox with columns' in content or
+            '{{navbox subgroup' in content)
+
+def insert_commonscat(text, commonscat_value, session):
+    commonscat_template = f"{{{{Commonscat|{commonscat_value}}}}}"
+
+    lines = text.splitlines()
+
+    # Check for 'Other websites' or 'External links' section, insert Commonscat after the header line without extra blank line
+    for idx, line in enumerate(lines):
+        if re.match(r"^==+\s*(Other websites|External links)\s*==+", line, re.IGNORECASE):
+            insert_index = idx + 1
+            # If next line is a template, prepend commonscat to it (no empty line)
+            if insert_index < len(lines) and lines[insert_index].strip().startswith('{{'):
+                lines[insert_index] = f"{commonscat_template} {lines[insert_index].strip()}"
+            else:
+                lines.insert(insert_index, commonscat_template)
+            return '\n'.join(lines)
+
+    # No 'Other websites' or 'External links' section found
+    # Insert above stub templates or navboxes with an empty line before Commonscat for separation
+    insert_index = len(lines)
+
+    for idx in reversed(range(len(lines))):
+        line = lines[idx].strip()
+        if not line:
+            continue
+
+        # Check if line is a stub template
+        for stub in STUB_TEMPLATES:
+            if line.startswith("{{" + stub):
+                insert_index = idx
+                break
+
+        # Check if line is a navbox template
+        if line.startswith("{{") and "}}" in line:
+            tmpl_name = extract_template_name(line)
+            if tmpl_name and is_navbox_template(session, tmpl_name):
+                insert_index = idx
+                break
+
+        if insert_index < len(lines):
+            break
+
+    # Insert empty line before commonscat template for spacing
+    lines.insert(insert_index, '')
+    lines.insert(insert_index, commonscat_template)
+
+    return '\n'.join(lines)
+
+def fetch_commons_category_from_wikidata(title, session):
+    r = session.get(API_URL, params={
+        'action': 'query',
+        'prop': 'pageprops',
+        'titles': title,
+        'format': 'json'
+    })
+    page_data = r.json()['query']['pages']
+    for page in page_data.values():
+        page_props = page.get('pageprops', {})
+        qid = page_props.get('wikibase_item')
+        if qid:
+            w = session.get("https://www.wikidata.org/w/api.php", params={
+                'action': 'wbgetclaims',
+                'entity': qid,
+                'property': 'P373',
+                'format': 'json'
+            })
+            claims = w.json().get('claims', {})
+            if 'P373' in claims:
+                return claims['P373'][0]['mainsnak']['datavalue']['value']
+    return None
+
+def add_commonscat_to_page(title, session):
+    r = session.get(API_URL, params={
+        'action': 'query',
+        'prop': 'revisions',
+        'titles': title,
+        'rvslots': 'main',
+        'rvprop': 'content',
+        'formatversion': 2,
+        'format': 'json'
+    })
+    page = r.json()['query']['pages'][0]
+    if 'missing' in page:
+        print(f"{title} doesn’t exist.")
         return
 
-    if has_commonscat(text):
-        print(f"{title} already has a Commons-related template. Skipping.")
+    wikitext = page['revisions'][0]['slots']['main']['content']
+    if has_commonscat(wikitext):
+        print(f"{title} already has Commonscat.")
         return
 
     commonscat_value = fetch_commons_category_from_wikidata(title, session)
     if not commonscat_value:
-        print(f"No Commons category found for {title}. Skipping.")
+        print(f"No Commonscat in Wikidata for {title}.")
         return
 
-    new_text = modify_sister_project_links(text, commonscat_value)
-    if not new_text:
-        new_text = insert_commonscat(text, commonscat_value)
+    new_wikitext = insert_commonscat(wikitext, commonscat_value, session)
 
     csrf_token = get_csrf_token(session)
-    r = session.post(API_URL, data={
+
+    r2 = session.post(API_URL, data={
         'action': 'edit',
         'title': title,
-        'text': new_text,
+        'text': new_wikitext,
         'token': csrf_token,
         'format': 'json',
         'summary': 'Bot: Adding Commons category using P373 from Wikidata',
         'assert': 'user',
         'bot': True
     })
-
-    result = r.json()
-    print("Edit response:", result)
-    if result.get('edit', {}).get('result') == 'Success':
-        print(f"✅ Successfully edited: {title}")
-    else:
-        print(f"❌ Failed to edit {title}: {result}")
+    print("Edit:", r2.json().get('edit', {}))
 
 def run_bot():
-    username = os.getenv('BOT_USERNAME')
-    password = os.getenv('BOT_PASSWORD')
-
-    if not username or not password:
-        print("Missing BOT_USERNAME or BOT_PASSWORD in environment.")
+    user = os.getenv('BOT_USERNAME')
+    pw = os.getenv('BOT_PASSWORD')
+    if not user or not pw:
+        print("Missing credentials.")
         return
-
-    session = login_and_get_session(username, password)
+    session = login_and_get_session(user, pw)
 
     for _ in range(15):
         try:
-            article = fetch_random_article(session)
-            print(f"\nWorking on: {article}")
-            add_commonscat_to_page(article, session)
+            title = fetch_random_article(session)
+            print(f"Now editing: {title}")
+            add_commonscat_to_page(title, session)
             time.sleep(3)
         except Exception as e:
-            print(f"Error during processing: {e}")
+            print(f"Error occurred: {e}")
             time.sleep(2)
 
 if __name__ == "__main__":
