@@ -67,7 +67,16 @@ def login_and_get_session(username, password):
     if r2.json()['login']['result'] != 'Success':
         raise Exception("Login failed!")
 
-    print("✅ Logged in as:", username)
+    # Fetch the logged-in user's information
+    r3 = session.get(API_URL, params={
+        'action': 'query',
+        'meta': 'userinfo',
+        'format': 'json'
+    })
+    
+    logged_in_user = r3.json()['query']['userinfo']['name']
+    print(f"✅ Logged in as {logged_in_user}")
+    
     return session
 
 def get_csrf_token(session):
@@ -212,7 +221,7 @@ def add_commonscat_to_page(title, session):
 
     wikitext = page['revisions'][0]['slots']['main']['content']
     if has_commonscat(wikitext):
-        print(f"⛔ {title} already has Commons-related template.")
+        print(f"{title} already has a Commons-related template.")
         return
 
     commonscat_value = fetch_commons_category_from_wikidata(title, session)
