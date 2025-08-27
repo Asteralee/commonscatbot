@@ -4,7 +4,7 @@ import requests
 import mwparserfromhell
 import time
 
-API_URL = "https://test.wikipedia.org/w/api.php"  # Changed to testwiki
+API_URL = "https://test.wikipedia.org/w/api.php"  # testwiki API endpoint
 
 HEADERS = {
     'User-Agent': 'AsteraBot/1.0 (https://simple.wikipedia.org/wiki/User:AsteraBot)'
@@ -71,7 +71,6 @@ def login_and_get_session(username, password):
     if r2.json()['login']['result'] != 'Success':
         raise Exception("Login failed!")
 
-    # Fetch the logged-in user's information
     r3 = session.get(API_URL, params={
         'action': 'query',
         'meta': 'userinfo',
@@ -166,7 +165,7 @@ def insert_commonscat(text, commonscat_value, session):
     lines = text.splitlines()
     insert_index = len(lines)
 
-    # If there's an Other websites section
+    # If there's an Other websites or External links section
     for idx, line in enumerate(lines):
         if re.match(r"^==+\s*(Other websites|External links)\s*==+", line, re.IGNORECASE):
             insert_index = idx + 1
@@ -228,31 +227,26 @@ def add_commonscat_to_page(title, session, override_commonscat=None):
 
     page = r.json()['query']['pages'][0]
     if 'missing' in page:
-        print(f"Page {title} does not exist.")
+        print(f"Page '{title}' does not exist.")
         return
 
     wikitext = page['revisions'][0]['slots']['main']['content']
     if has_commonscat(wikitext):
-        print(f"{title} already has a Commons-related template.")
+        print(f"'{title}' already has a Commons-related template.")
         return
 
     if has_authority_control(wikitext):
-        print(f"{title} already has an Authority control template.")
-        # You can skip editing or continue depending on your policy.
-        # For now, we just print info and continue.
-    
-    if override_commonscat:
-        commonscat_value = override_commonscat
-        print(f"🔧 Using override Commonscat: {commonscat_value}")
-    else:
-        commonscat_value = fetch_commons_category_from_wikidata(title, session)
-        if not commonscat_value:
-            print(f"⚠️ No Commons category found for {title}")
-            return
+        print(f"'{title}' has an Authority control template; skipping.")
+        return
+
+    commonscat_value = override_commonscat or fetch_commons_category_from_wikidata(title, session)
+    if not commonscat_value:
+        print(f"⚠️ No Commons category found for '{title}'.")
+        return
 
     new_text = insert_commonscat(wikitext, commonscat_value, session)
     if new_text == wikitext:
-        print(f"Nothing changed for {title}")
+        print(f"Nothing changed for '{title}'.")
         return
 
     token = get_csrf_token(session)
@@ -261,7 +255,7 @@ def add_commonscat_to_page(title, session, override_commonscat=None):
         'title': title,
         'text': new_text,
         'token': token,
-        'summary': 'Bot: Adding Commons category using override or P373 from Wikidata',
+        'summary': 'Bot: Adding Commons category using P373 from Wikidata',
         'format': 'json',
         'assert': 'user',
         'bot': True
@@ -269,36 +263,29 @@ def add_commonscat_to_page(title, session, override_commonscat=None):
 
     result = r2.json()
     if result.get('edit', {}).get('result') == 'Success':
-        print(f"✅ Successfully edited: {title}")
+        print(f"✅ Successfully edited: '{title}'")
     else:
-        print(f"❌ Failed to edit {title}: {result}")
+        print(f"❌ Failed to edit '{title}': {result}")
 
 def run_bot():
     username = os.getenv("BOT_USERNAME")
     password = os.getenv("BOT_PASSWORD")
 
     if not username or not password:
-        print("Missing BOT_USERNAME or BOT_PASSWORD.")
+        print("Missing BOT_USERNAME or BOT_PASSWORD environment variables.")
         return
 
     session = login_and_get_session(username, password)
 
-    # 🚧 Manual test article
-    test_title = "Test page"
-    override_commonscat = "Test_Category_On_Commons"
-
-    print(f"\n🧪 Running manual test edit on '{test_title}'")
-    add_commonscat_to_page(test_title, session, override_commonscat=override_commonscat)
-
-     for _ in range(5):
+    for _ in range(10):  # Change this to however many random edits you want
         try:
-             title = fetch_random_article(session)
-             print(f"\n📝 Processing: {title}")
-             add_commonscat_to_page(title, session)
-             time.sleep(3)
-         except Exception as e:
-             print(f"⚠️ Error: {e}")
-             time.sleep(2)
+            title = fetch_random_article(session)
+            print(f"\n📝 Processing: '{title}'")
+            add_commonscat_to_page(title, session)
+            time.sleep(3)
+        except Exception as e:
+            print(f"⚠️ Error: {e}")
+            time.sleep(2)
 
 if __name__ == "__main__":
     run_bot()
