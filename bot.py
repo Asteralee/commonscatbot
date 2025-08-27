@@ -4,13 +4,12 @@ import requests
 import mwparserfromhell
 import time
 
-API_URL = "https://test.wikipedia.org/w/api.php"  # testwiki API endpoint
+API_URL = "https://simple.wikipedia.org/w/api.php"
 
 HEADERS = {
     'User-Agent': 'AsteraBot/1.0 (https://simple.wikipedia.org/wiki/User:AsteraBot)'
 }
 
-# Templates that indicate a Commonscat or related already exists
 BLOCKING_TEMPLATES = [
     "Commonscat", "Commons cat", "Commonscat2", "Ccat", "Wikimedia commons cat",
     "Category commons", "C cat", "Commonscategory", "Commonsimages cat",
@@ -29,23 +28,25 @@ BLOCKING_TEMPLATES = [
     "C18 year in topic"
 ]
 
-# Known stub templates (used for positioning)
 STUB_TEMPLATES = [
-    "Multistub", "Stub", "Acid-base disorders", "Actor-stub", "Asia-stub", 
-    "Biography-stub", "Biology-stub", "Canada-stub", "Chem-stub", 
-    "Consequences of external causes", "Disorders of the breast", "Europe-stub", 
-    "Expand list", "Food-stub", "France-geo-stub", "Geo-stub", "History-stub", 
-    "Infobox medical intervention", "Japan-sports-bio-stub", "Japan-stub", 
-    "Lit-stub", "Math-stub", "Med-stub", "Military-stub", "Movie-stub", 
-    "Music-stub", "North-America-stub", "Performing-arts-stub", "Physics-stub", 
-    "Politics-stub", "Religion-stub", "Sci-stub", "Shock types", "Sport-stub", 
-    "Sports-biography-stub", "Switzerland-stub", "Tech-stub", "Transport-stub", 
-    "Tv-stub", "UK-stub", "US-actor-stub", "US-biography-stub", "US-geo-stub", 
+    "Multistub", "Stub", "Acid-base disorders", "Actor-stub", "Asia-stub",
+    "Biography-stub", "Biology-stub", "Canada-stub", "Chem-stub",
+    "Consequences of external causes", "Disorders of the breast", "Europe-stub",
+    "Expand list", "Food-stub", "France-geo-stub", "Geo-stub", "History-stub",
+    "Infobox medical intervention", "Japan-sports-bio-stub", "Japan-stub",
+    "Lit-stub", "Math-stub", "Med-stub", "Military-stub", "Movie-stub",
+    "Music-stub", "North-America-stub", "Performing-arts-stub", "Physics-stub",
+    "Politics-stub", "Religion-stub", "Sci-stub", "Shock types", "Sport-stub",
+    "Sports-biography-stub", "Switzerland-stub", "Tech-stub", "Transport-stub",
+    "Tv-stub", "UK-stub", "US-actor-stub", "US-biography-stub", "US-geo-stub",
     "US-sports-bio-stub", "US-stub", "Video-game-stub", "Weather-stub"
 ]
 
 AUTHORITY_CONTROL_TEMPLATES = [
-    "Authority control"
+    "Authority control",
+    "Authoritycontrol",
+    "Authority Control",
+    "Normdaten"
 ]
 
 def login_and_get_session(username, password):
@@ -78,7 +79,7 @@ def login_and_get_session(username, password):
     })
     
     logged_in_user = r3.json()['query']['userinfo']['name']
-    print(f"✅ Logged in as {logged_in_user}")
+    print(f"Logged in as {logged_in_user}")
     
     return session
 
@@ -128,7 +129,7 @@ def has_authority_control(wikitext):
     code = mwparserfromhell.parse(wikitext)
     for tmpl in code.filter_templates():
         name = tmpl.name.strip_code().strip()
-        if name in AUTHORITY_CONTROL_TEMPLATES:
+        if any(name.lower() == tmpl_name.lower() for tmpl_name in AUTHORITY_CONTROL_TEMPLATES):
             return True
     return False
 
@@ -165,7 +166,6 @@ def insert_commonscat(text, commonscat_value, session):
     lines = text.splitlines()
     insert_index = len(lines)
 
-    # If there's an Other websites or External links section
     for idx, line in enumerate(lines):
         if re.match(r"^==+\s*(Other websites|External links)\s*==+", line, re.IGNORECASE):
             insert_index = idx + 1
@@ -175,7 +175,6 @@ def insert_commonscat(text, commonscat_value, session):
                 lines.insert(insert_index, commonscat_template)
             return '\n'.join(lines)
 
-    # Otherwise, look for stub or navbox templates
     for idx in reversed(range(len(lines))):
         line = lines[idx].strip()
         if not line:
@@ -214,7 +213,7 @@ def fetch_commons_category_from_wikidata(title, session):
                 return claims['P373'][0]['mainsnak']['datavalue']['value']
     return None
 
-def add_commonscat_to_page(title, session, override_commonscat=None):
+def add_commonscat_to_page(title, session):
     r = session.get(API_URL, params={
         'action': 'query',
         'prop': 'revisions',
@@ -236,12 +235,12 @@ def add_commonscat_to_page(title, session, override_commonscat=None):
         return
 
     if has_authority_control(wikitext):
-        print(f"'{title}' has an Authority control template; skipping.")
+        print(f"'{title}' has authority control template; skipping.")
         return
 
-    commonscat_value = override_commonscat or fetch_commons_category_from_wikidata(title, session)
+    commonscat_value = fetch_commons_category_from_wikidata(title, session)
     if not commonscat_value:
-        print(f"⚠️ No Commons category found for '{title}'.")
+        print(f"No Commons category found for '{title}'.")
         return
 
     new_text = insert_commonscat(wikitext, commonscat_value, session)
@@ -263,28 +262,28 @@ def add_commonscat_to_page(title, session, override_commonscat=None):
 
     result = r2.json()
     if result.get('edit', {}).get('result') == 'Success':
-        print(f"✅ Successfully edited: '{title}'")
+        print(f"Successfully edited: '{title}'")
     else:
-        print(f"❌ Failed to edit '{title}': {result}")
+        print(f"Failed to edit '{title}': {result}")
 
 def run_bot():
     username = os.getenv("BOT_USERNAME")
     password = os.getenv("BOT_PASSWORD")
 
     if not username or not password:
-        print("Missing BOT_USERNAME or BOT_PASSWORD environment variables.")
+        print("Missing BOT_USERNAME or BOT_PASSWORD.")
         return
 
     session = login_and_get_session(username, password)
 
-    for _ in range(10):  # Change this to however many random edits you want
+    for _ in range(10):
         try:
             title = fetch_random_article(session)
-            print(f"\n📝 Processing: '{title}'")
+            print(f"\nProcessing: '{title}'")
             add_commonscat_to_page(title, session)
             time.sleep(3)
         except Exception as e:
-            print(f"⚠️ Error: {e}")
+            print(f"Error: {e}")
             time.sleep(2)
 
 if __name__ == "__main__":
