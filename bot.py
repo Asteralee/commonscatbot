@@ -4,13 +4,12 @@ import requests
 import mwparserfromhell
 import time
 
-API_URL = "https://simple.wikipedia.org/w/api.php"
+API_URL = "https://test.wikipedia.org/w/api.php"
 
 HEADERS = {
-    'User-Agent': 'AsteraBot/1.0 (https://simple.wikipedia.org/wiki/User:AsteraBot)'
+    'User-Agent': 'AsteraBot/1.0 (https://test.wikipedia.org/wiki/User:AsteraBot)'
 }
 
-# Templates that indicate a Commonscat or related already exists
 BLOCKING_TEMPLATES = [
     "Commonscat", "Commons cat", "Commonscat2", "Ccat", "Wikimedia commons cat",
     "Category commons", "C cat", "Commonscategory", "Commonsimages cat",
@@ -29,19 +28,9 @@ BLOCKING_TEMPLATES = [
     "C18 year in topic"
 ]
 
-# Known stub templates (used for positioning)
 STUB_TEMPLATES = [
-    "Multistub", "Stub", "Acid-base disorders", "Actor-stub", "Asia-stub", 
-    "Biography-stub", "Biology-stub", "Canada-stub", "Chem-stub", 
-    "Consequences of external causes", "Disorders of the breast", "Europe-stub", 
-    "Expand list", "Food-stub", "France-geo-stub", "Geo-stub", "History-stub", 
-    "Infobox medical intervention", "Japan-sports-bio-stub", "Japan-stub", 
-    "Lit-stub", "Math-stub", "Med-stub", "Military-stub", "Movie-stub", 
-    "Music-stub", "North-America-stub", "Performing-arts-stub", "Physics-stub", 
-    "Politics-stub", "Religion-stub", "Sci-stub", "Shock types", "Sport-stub", 
-    "Sports-biography-stub", "Switzerland-stub", "Tech-stub", "Transport-stub", 
-    "Tv-stub", "UK-stub", "US-actor-stub", "US-biography-stub", "US-geo-stub", 
-    "US-sports-bio-stub", "US-stub", "Video-game-stub", "Weather-stub"
+    "Multistub", "Stub", "US-stub", "Actor-stub", "Math-stub", "Tech-stub"
+    # Add more if needed for test.wikipedia.org
 ]
 
 def login_and_get_session(username, password):
@@ -67,7 +56,6 @@ def login_and_get_session(username, password):
     if r2.json()['login']['result'] != 'Success':
         raise Exception("Login failed!")
 
-    # Fetch the logged-in user's information
     r3 = session.get(API_URL, params={
         'action': 'query',
         'meta': 'userinfo',
@@ -154,7 +142,7 @@ def insert_commonscat(text, commonscat_value, session):
     lines = text.splitlines()
     insert_index = len(lines)
 
-    # If there's an Other websites section
+    # Prefer: External links section
     for idx, line in enumerate(lines):
         if re.match(r"^==+\s*(Other websites|External links)\s*==+", line, re.IGNORECASE):
             insert_index = idx + 1
@@ -164,18 +152,30 @@ def insert_commonscat(text, commonscat_value, session):
                 lines.insert(insert_index, commonscat_template)
             return '\n'.join(lines)
 
-    # Otherwise, look for stub or navbox templates
+    # Otherwise look for stub, navbox, or authority control
+    authority_index = None
+    navbox_index = None
+    stub_index = None
+
     for idx in reversed(range(len(lines))):
         line = lines[idx].strip()
         if not line:
             continue
-        if is_stub_template(line):
-            insert_index = idx
-            break
         tmpl_name = extract_template_name(line)
-        if tmpl_name and is_navbox_template(session, tmpl_name):
-            insert_index = idx
-            break
+        if tmpl_name:
+            if tmpl_name.lower() == "authority control":
+                authority_index = idx
+            elif is_navbox_template(session, tmpl_name):
+                navbox_index = idx
+        if is_stub_template(line) and stub_index is None:
+            stub_index = idx
+
+    if authority_index is not None:
+        insert_index = authority_index
+    elif navbox_index is not None:
+        insert_index = navbox_index
+    elif stub_index is not None:
+        insert_index = stub_index
 
     lines.insert(insert_index, '')
     lines.insert(insert_index, commonscat_template)
@@ -262,7 +262,7 @@ def run_bot():
 
     session = login_and_get_session(username, password)
 
-    for _ in range(10):
+    for _ in range(5):  # Lower limit for testing
         try:
             title = fetch_random_article(session)
             print(f"\n📝 Processing: {title}")
