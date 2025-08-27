@@ -1,7 +1,7 @@
-name: Run AsteraBot TESTWIKI BIT
+name: Run AsteraBot
 
 on:
-  workflow_dispatch:  # Manual trigger from GitHub UI
+  workflow_dispatch:  
 
 jobs:
   run-bot:
