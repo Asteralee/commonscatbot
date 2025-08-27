@@ -290,16 +290,15 @@ def run_bot():
     print(f"\n🧪 Running manual test edit on '{test_title}'")
     add_commonscat_to_page(test_title, session, override_commonscat=override_commonscat)
 
-    # Uncomment below to enable random edits:
-    # for _ in range(5):
-    #     try:
-    #         title = fetch_random_article(session)
-    #         print(f"\n📝 Processing: {title}")
-    #         add_commonscat_to_page(title, session)
-    #         time.sleep(3)
-    #     except Exception as e:
-    #         print(f"⚠️ Error: {e}")
-    #         time.sleep(2)
+     for _ in range(5):
+        try:
+             title = fetch_random_article(session)
+             print(f"\n📝 Processing: {title}")
+             add_commonscat_to_page(title, session)
+             time.sleep(3)
+         except Exception as e:
+             print(f"⚠️ Error: {e}")
+             time.sleep(2)
 
 if __name__ == "__main__":
     run_bot()
